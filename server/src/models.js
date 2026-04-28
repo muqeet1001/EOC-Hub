@@ -1,0 +1,109 @@
+import mongoose from "mongoose";
+
+const deliverySchema = new mongoose.Schema(
+  {
+    userId: { type: String, required: true },
+    read: { type: Boolean, default: false },
+    readAt: { type: Date, default: null },
+  },
+  { _id: false },
+);
+
+const summarySchema = new mongoose.Schema(
+  {
+    keyPoints: [{ type: String }],
+    decisions: [{ type: String }],
+    actionItems: [{ type: String }],
+  },
+  { _id: false },
+);
+
+const baseOptions = {
+  versionKey: false,
+};
+
+const cellSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    name: { type: String, required: true },
+  },
+  baseOptions,
+);
+
+const userSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    name: { type: String, required: true },
+    email: { type: String, required: true, index: true },
+    password: { type: String, required: true },
+    role: { type: String, required: true, index: true },
+    cellId: { type: String, default: null, index: true },
+    phone: { type: String, default: "" },
+    designation: { type: String, default: "" },
+  },
+  baseOptions,
+);
+
+const circularSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    title: { type: String, required: true },
+    description: { type: String, required: true },
+    cellId: { type: String, required: true, index: true },
+    createdBy: { type: String, required: true },
+    fileUrl: { type: String, default: null },
+    filePublicId: { type: String, default: null },
+    createdAt: { type: Date, default: Date.now, index: true },
+    readBy: [{ type: String }],
+    deliveries: [deliverySchema],
+  },
+  baseOptions,
+);
+
+const meetingSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    circularId: { type: String, default: null },
+    cellId: { type: String, required: true, index: true },
+    title: { type: String, required: true },
+    scheduledAt: { type: Date, required: true },
+    meetingLink: { type: String, required: true },
+    createdBy: { type: String, required: true },
+    attendees: [{ type: String }],
+    status: { type: String, default: "Scheduled" },
+  },
+  baseOptions,
+);
+
+const reportSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    meetingId: { type: String, required: true, index: true },
+    cellId: { type: String, required: true, index: true },
+    summary: { type: summarySchema, required: true },
+    createdAt: { type: Date, default: Date.now },
+  },
+  baseOptions,
+);
+
+const notificationSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    userId: { type: String, required: true, index: true },
+    title: { type: String, required: true },
+    message: { type: String, required: true },
+    type: { type: String, required: true },
+    entityId: { type: String, required: true },
+    read: { type: Boolean, default: false, index: true },
+    createdAt: { type: Date, default: Date.now, index: true },
+  },
+  baseOptions,
+);
+
+export const Cell = mongoose.models.Cell || mongoose.model("Cell", cellSchema);
+export const User = mongoose.models.User || mongoose.model("User", userSchema);
+export const Circular = mongoose.models.Circular || mongoose.model("Circular", circularSchema);
+export const Meeting = mongoose.models.Meeting || mongoose.model("Meeting", meetingSchema);
+export const Report = mongoose.models.Report || mongoose.model("Report", reportSchema);
+export const Notification =
+  mongoose.models.Notification || mongoose.model("Notification", notificationSchema);
