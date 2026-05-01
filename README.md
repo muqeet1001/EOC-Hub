@@ -1,37 +1,40 @@
 # EOC Hub
 
-Role-based web app for circulars, meetings, notifications, and AI-generated meeting summaries.
+Admin-only circular distribution app for Equal Opportunity Cell communication.
 
 ## Stack
 
 - Frontend: React + Vite
 - Backend: Node.js + Express
 - Database: MongoDB
-- File storage: Cloudinary
-- Auth: JWT
+- File storage: local uploads by default, Cloudinary when configured
+- Email: SMTP through Nodemailer
 
-## Roles
+## Current Flow
 
-- Admin (Chairman)
-- Cell Head
-- Cell Member
-
-## Demo Login
-
-- Admin: `admin@eochub.test` / `admin123`
-- Cell Head: `head.obc@eochub.test` / `head123`
-- Cell Member: `member.obc@eochub.test` / `member123`
+- No login or user authentication screen
+- Admin opens the dashboard directly
+- Admin selects a cell
+- Admin uploads a circular PDF and writes the email message
+- The backend saves the circular and sends it to every email address for that cell
+- Sent circulars show member-by-member delivery status
 
 ## Environment
 
 Create `server/.env` from `server/.env.example` and set:
 
 - `MONGODB_URI`
-- `JWT_SECRET`
-- `CLOUDINARY_CLOUD_NAME`
-- `CLOUDINARY_API_KEY`
-- `CLOUDINARY_API_SECRET`
-- `CLOUDINARY_FOLDER` (optional)
+- `PUBLIC_APP_URL` (defaults to `http://localhost:4000`)
+- Optional Cloudinary values for hosted PDF storage
+- SMTP values for real email delivery:
+  - `SMTP_HOST`
+  - `SMTP_PORT`
+  - `SMTP_SECURE`
+  - `SMTP_USER`
+  - `SMTP_PASS`
+  - `SMTP_FROM`
+
+If SMTP is not configured, circulars are still saved and delivery rows are marked as `not_configured`.
 
 ## Run
 
@@ -48,21 +51,3 @@ Frontend:
 Backend:
 
 - `http://localhost:4000`
-
-## Included Flows
-
-- JWT login with role detection
-- Role-based dashboard
-- Admin circular creation with optional PDF upload
-- Cell-filtered notifications
-- Cell Head meeting scheduling
-- Member circular viewing and meeting joining
-- AI-style meeting summary generation
-- Minutes/report visibility for Admin and Cell Head
-
-## Notes
-
-- Users, cells, circulars, meetings, reports, and notifications are now intended to persist in MongoDB.
-- PDF circular uploads use Cloudinary when Cloudinary credentials are configured.
-- The AI summary service is mocked so the full product flow can be demonstrated without external APIs.
-- Email notifications are not enabled yet.

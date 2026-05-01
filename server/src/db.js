@@ -36,4 +36,8 @@ async function seedCollection(Model, documents) {
 export async function ensureSeedData() {
   await seedCollection(Cell, cells);
   await seedCollection(User, users);
+  const admin = users.find((user) => user.id === "user-admin");
+  if (admin) {
+    await User.updateOne({ id: admin.id }, { $set: { email: admin.email } });
+  }
 }

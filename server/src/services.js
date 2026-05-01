@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { roles } from "./data.js";
+import { sendCircularEmail } from "./email.js";
 import { Cell, Circular, Meeting, Notification, Report, User } from "./models.js";
 
 async function getCellMap() {
@@ -108,6 +109,10 @@ async function enrichCircular(circular, cellMap) {
         ...sanitized,
         read: delivery.read,
         readAt: delivery.readAt,
+        emailStatus: delivery.emailStatus ?? "pending",
+        emailedAt: delivery.emailedAt ?? null,
+        emailError: delivery.emailError ?? "",
+        messageId: delivery.messageId ?? "",
       };
     }),
   );
@@ -123,6 +128,13 @@ async function enrichCircular(circular, cellMap) {
       total: recipientPayload.length,
       read: recipientPayload.filter((recipient) => recipient.read).length,
       unread: recipientPayload.filter((recipient) => !recipient.read).length,
+      sent: recipientPayload.filter((recipient) => recipient.emailStatus === "sent").length,
+      failed: recipientPayload.filter((recipient) => recipient.emailStatus === "failed").length,
+      skipped: recipientPayload.filter((recipient) => recipient.emailStatus === "skipped").length,
+      notConfigured: recipientPayload.filter(
+        (recipient) => recipient.emailStatus === "not_configured",
+      ).length,
+      pending: recipientPayload.filter((recipient) => recipient.emailStatus === "pending").length,
     },
     headRecipient,
     headStatus: {
@@ -247,9 +259,20 @@ async function getDashboardData(user, accountContext, payload) {
   };
 }
 
-export async function createCircular({ title, description, cellId, createdBy, fileUrl, filePublicId }) {
+export async function createCircular({
+  title,
+  description,
+  cellId,
+  createdBy,
+  fileUrl,
+  filePublicId,
+  fileName,
+  fileMimeType,
+  fileSize,
+}) {
   const recipients = await User.find({ cellId }).lean();
   const cell = await Cell.findOne({ id: cellId }).lean();
+  const cellName = cell?.name ?? cellId;
   const circular = await Circular.create({
     id: randomUUID(),
     title,
@@ -258,14 +281,44 @@ export async function createCircular({ title, description, cellId, createdBy, fi
     createdBy,
     fileUrl: fileUrl ?? null,
     filePublicId: filePublicId ?? null,
+    fileName: fileName ?? "",
+    fileMimeType: fileMimeType ?? "",
+    fileSize: fileSize ?? 0,
     createdAt: new Date(),
     readBy: [],
     deliveries: recipients.map((recipient) => ({
       userId: recipient.id,
       read: false,
       readAt: null,
+      email: recipient.email ?? "",
+      emailStatus: "pending",
+      emailedAt: null,
+      emailError: "",
+      messageId: "",
     })),
   });
+
+  if (recipients.length) {
+    const deliveryResults = await Promise.all(
+      recipients.map((recipient) =>
+        sendCircularEmail({
+          recipient,
+          cellName,
+          circular: circular.toObject(),
+        }),
+      ),
+    );
+
+    circular.deliveries.forEach((delivery, index) => {
+      const result = deliveryResults[index];
+      delivery.emailStatus = result.status;
+      delivery.emailedAt = result.sentAt;
+      delivery.emailError = result.error ?? "";
+      delivery.messageId = result.messageId ?? "";
+    });
+
+    await circular.save();
+  }
 
   if (recipients.length) {
     await Notification.insertMany(
@@ -282,7 +335,7 @@ export async function createCircular({ title, description, cellId, createdBy, fi
     );
   }
 
-  return circular.toObject();
+  return enrichCircular(circular.toObject(), await getCellMap());
 }
 
 export async function markCircularRead(circularId, userId) {

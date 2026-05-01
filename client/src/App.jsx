@@ -1,144 +1,46 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 const API_BASE = "http://localhost:4000/api";
-const FILE_BASE = "http://localhost:4000";
-const defaultMeetingForm = {
-  circularId: "",
+
+const emptyCircularForm = {
   title: "",
+  description: "",
   cellId: "",
-  scheduledAt: "",
-  meetingLink: "",
+  file: null,
 };
 
-const demoCredentials = [
-  { role: "Admin", email: "admin@eochub.test", password: "admin123" },
-  { role: "OBC Cell Head", email: "salims.me@hkbk.edu.in", password: "head123" },
-  { role: "OBC Cell Member", email: "dineshh.me@hkbk.edu.in", password: "member123" },
-  { role: "Cell Head", email: "hod.cse@hkbk.edu.in", password: "head123" },
-  { role: "Cell Member", email: "sumaiyab.mb@hkbk.edu.in", password: "member123" },
-];
-
-const landingCells = [
-  {
-    name: "OBC Cell",
-    head: "Dr. Salim Sharieff",
-    audience: "OBC students, staff, and applicants seeking fair access and support.",
-    issues: "Reservation guidance, scholarship awareness, welfare access, and discrimination concerns.",
-  },
-  {
-    name: "Population Studies Cell",
-    head: "Prof. Khallikkunaisa",
-    audience: "Students and faculty engaging with population awareness and social research topics.",
-    issues: "Population literacy, awareness initiatives, and community-focused academic engagement.",
-  },
-  {
-    name: "SC Cell",
-    head: "Prof. Seema Shivapur",
-    audience: "SC/ST students and staff needing representation, support, and grievance redressal.",
-    issues: "Equity concerns, scholarship access, reservation support, and social inclusion matters.",
-  },
-  {
-    name: "Women Cell",
-    head: "Dr. Tabassum Ara",
-    audience: "Women students and staff looking for guidance, welfare support, and institutional assistance.",
-    issues: "Women's welfare, safety, mentoring, participation, and support for institutional concerns.",
-  },
-  {
-    name: "Women's Study Cell",
-    head: "Dr. Tabassum Ara",
-    audience: "Students and faculty interested in gender awareness, policy understanding, and women's development.",
-    issues: "Gender awareness, women's empowerment, research, outreach, and sensitization initiatives.",
-  },
-  {
-    name: "International Students Cell",
-    head: "Prof. Sumaiya Banu",
-    audience: "International students and exchange learners adapting to academic and campus life.",
-    issues: "Onboarding help, campus integration, academic assistance, and communication support.",
-  },
-  {
-    name: "Minority Cell",
-    head: "Dr. Maaz Ahmed",
-    audience: "Minority students and staff who need equitable support, inclusion, and representation.",
-    issues: "Minority welfare, grievance support, awareness, access to schemes, and inclusive participation.",
-  },
-  {
-    name: "Counselling & Mentoring Cell",
-    head: "Dr. Smitha Kurian",
-    audience: "Students who need mentoring, emotional support, academic direction, or personal guidance.",
-    issues: "Counselling, mentoring, adjustment issues, academic stress, and personal development support.",
-  },
-  {
-    name: "Differently Abled Cell",
-    head: "Dr. A Syed Mustafa",
-    audience: "Persons with disabilities who require accessible infrastructure and academic accommodations.",
-    issues: "Accessibility, accommodation requests, barrier-free learning, and inclusive campus support.",
-  },
-  {
-    name: "Remedial Coaching Cell",
-    head: "Dr. Chandrakumar K",
-    audience: "Students needing extra academic reinforcement or structured learning support.",
-    issues: "Remedial classes, foundational academic help, learning gaps, and progression support.",
-  },
-  {
-    name: "National Service Scheme (NSS) Cell",
-    head: "Dr. Salim Sharieff",
-    audience: "Students interested in social service, outreach, volunteer work, and civic responsibility.",
-    issues: "Volunteer coordination, service activities, outreach programs, and community participation.",
-  },
-  {
-    name: "Prevention of Sexual Harassment (POSH) Cell",
-    head: "Prof. Khallikkunaisa",
-    audience: "Any student or staff member facing sexual harassment, unsafe conduct, or workplace misconduct.",
-    issues: "POSH complaints, confidential reporting, awareness, and safe institutional response mechanisms.",
-  },
-  {
-    name: "Gender Sensitization Cell",
-    head: "Prof. Khallikkunaisa",
-    audience: "Students and staff seeking a more respectful, inclusive, and gender-aware campus environment.",
-    issues: "Gender sensitization, awareness sessions, inclusion initiatives, and respectful-campus concerns.",
-  },
-  {
-    name: "Human Studies Cell",
-    head: "Prof. Khallikkunaisa",
-    audience: "Students and faculty engaging with social, ethical, and human-centered academic concerns.",
-    issues: "Human values, ethics, awareness activities, and social development-focused initiatives.",
-  },
-];
-
 function App() {
-  const [token, setToken] = useState(() => localStorage.getItem("eoc-token") ?? "");
   const [data, setData] = useState(null);
-  const [error, setError] = useState("");
-  const [activeTab, setActiveTab] = useState("dashboard");
-  const [selectedBoardId, setSelectedBoardId] = useState("");
+  const [activeView, setActiveView] = useState("compose");
+  const [selectedCellId, setSelectedCellId] = useState("");
+  const [memberTab, setMemberTab] = useState("all");
+  const [circularForm, setCircularForm] = useState(emptyCircularForm);
   const [loading, setLoading] = useState(false);
-  const [circularForm, setCircularForm] = useState({
-    title: "",
-    description: "",
-    cellId: "",
-    file: null,
-  });
-  const [meetingForm, setMeetingForm] = useState(defaultMeetingForm);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [fileInputKey, setFileInputKey] = useState(0);
 
   useEffect(() => {
-    if (!token) {
+    refreshBootstrap();
+  }, []);
+
+  useEffect(() => {
+    if (!data?.cells?.length || selectedCellId) {
       return;
     }
 
-    refreshBootstrap(token);
-  }, [token]);
+    const firstCellId = data.cells[0].id;
+    setSelectedCellId(firstCellId);
+    setCircularForm((form) => ({ ...form, cellId: firstCellId }));
+  }, [data, selectedCellId]);
 
-  async function apiFetch(path, options = {}, customToken = token) {
+  async function apiFetch(path, options = {}) {
     const headers = {
       ...(options.headers ?? {}),
     };
 
     if (!(options.body instanceof FormData)) {
       headers["Content-Type"] = headers["Content-Type"] ?? "application/json";
-    }
-
-    if (customToken) {
-      headers.Authorization = `Bearer ${customToken}`;
     }
 
     const response = await fetch(`${API_BASE}${path}`, {
@@ -154,55 +56,12 @@ function App() {
     return payload;
   }
 
-  async function refreshBootstrap(currentToken = token) {
+  async function refreshBootstrap() {
     try {
       setLoading(true);
-      const bootstrap = await apiFetch("/bootstrap", {}, currentToken);
+      const bootstrap = await apiFetch("/bootstrap");
       setData(bootstrap);
       setError("");
-      setSelectedBoardId((currentBoardId) => {
-        if (!bootstrap.membersDirectory?.length) {
-          return "";
-        }
-
-        if (
-          currentBoardId &&
-          bootstrap.membersDirectory.some((cell) => cell.id === currentBoardId)
-        ) {
-          return currentBoardId;
-        }
-
-        return "";
-      });
-      if (!meetingForm.cellId && bootstrap.user?.cellId) {
-        setMeetingForm((form) => ({ ...form, cellId: bootstrap.user.cellId }));
-      }
-    } catch (requestError) {
-      setError(requestError.message);
-      if (requestError.message.toLowerCase().includes("token")) {
-        logout();
-      }
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function login(email, password) {
-    try {
-      setLoading(true);
-      const result = await apiFetch(
-        "/auth/login",
-        {
-          method: "POST",
-          body: JSON.stringify({ email, password }),
-        },
-        "",
-      );
-      localStorage.setItem("eoc-token", result.token);
-      setToken(result.token);
-      setData(result.bootstrap);
-      setError("");
-      setSelectedBoardId("");
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -210,81 +69,49 @@ function App() {
     }
   }
 
-  function logout() {
-    localStorage.removeItem("eoc-token");
-    setToken("");
-    setData(null);
-    setActiveTab("dashboard");
-    setSelectedBoardId("");
+  function chooseCell(cellId) {
+    setSelectedCellId(cellId);
+    setCircularForm((form) => ({ ...form, cellId }));
+  }
+
+  function openMembersTab(tabId) {
+    setMemberTab(tabId);
+    if (tabId !== "all") {
+      chooseCell(tabId);
+    }
+    setActiveView("cells");
   }
 
   async function handleCircularSubmit(event) {
     event.preventDefault();
+    setError("");
+    setSuccess("");
+
     try {
       setLoading(true);
       const formData = new FormData();
-      formData.append("title", circularForm.title);
-      formData.append("description", circularForm.description);
-      formData.append("cellId", circularForm.cellId);
+      formData.append("title", circularForm.title.trim());
+      formData.append("description", circularForm.description.trim());
+      formData.append("cellId", circularForm.cellId || selectedCellId);
       if (circularForm.file) {
         formData.append("file", circularForm.file);
       }
 
-      await apiFetch("/circulars", {
+      const circular = await apiFetch("/circulars", {
         method: "POST",
         body: formData,
       });
 
-      setCircularForm({ title: "", description: "", cellId: "", file: null });
+      setCircularForm({ ...emptyCircularForm, cellId: selectedCellId });
+      setFileInputKey((key) => key + 1);
+      setSuccess(buildSendMessage(circular));
       await refreshBootstrap();
-      setActiveTab(canViewSentCirculars ? "sent-circulars" : "circulars");
+      setActiveView("sent");
     } catch (requestError) {
       setError(requestError.message);
     } finally {
       setLoading(false);
     }
-  }
-
-  async function handleMeetingSubmit(event) {
-    event.preventDefault();
-    try {
-      setLoading(true);
-      await apiFetch("/meetings", {
-        method: "POST",
-        body: JSON.stringify(meetingForm),
-      });
-      setMeetingForm({
-        ...defaultMeetingForm,
-        cellId: data?.user?.cellId ?? "",
-      });
-      await refreshBootstrap();
-      setActiveTab("meetings");
-    } catch (requestError) {
-      setError(requestError.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function markCircularRead(circularId) {
-    await apiFetch(`/circulars/${circularId}/read`, { method: "PATCH" });
-    await refreshBootstrap();
-  }
-
-  async function joinMeeting(meetingId) {
-    await apiFetch(`/meetings/${meetingId}/join`, { method: "PATCH" });
-    await refreshBootstrap();
-  }
-
-  async function generateSummary(meetingId) {
-    await apiFetch(`/meetings/${meetingId}/summary`, { method: "POST" });
-    await refreshBootstrap();
-    setActiveTab("reports");
-  }
-
-  async function markNotificationRead(notificationId) {
-    await apiFetch(`/notifications/${notificationId}/read`, { method: "PATCH" });
-    await refreshBootstrap();
   }
 
   async function openCircularFile(circularId) {
@@ -301,697 +128,434 @@ function App() {
     }
   }
 
-  if (!data) {
-    return <LandingPage onLogin={login} loading={loading} error={error} />;
-  }
-
-  const { user, cells, circulars, meetings, reports, notifications, dashboard, membersDirectory } =
-    data;
-  const selectedBoard =
-    membersDirectory.find((cell) => cell.id === selectedBoardId) ?? null;
-  const canCreateCircular = user.role === "Admin";
-  const canCreateMeeting = user.role === "Admin" || user.role === "Cell Head";
-  const canViewReports = user.role === "Admin" || user.role === "Cell Head";
-  const canViewSentCirculars = user.role === "Admin";
+  const membersDirectory = data?.membersDirectory ?? [];
+  const cells = data?.cells ?? [];
+  const circulars = data?.circulars ?? [];
+  const selectedCell = useMemo(
+    () => membersDirectory.find((cell) => cell.id === selectedCellId) ?? null,
+    [membersDirectory, selectedCellId],
+  );
+  const selectedMembers = selectedCell?.members ?? [];
+  const selectedEmails = selectedMembers.filter((member) => Boolean(member.email));
+  const stats = [
+    { label: "Cells", value: cells.length },
+    { label: "Members", value: membersDirectory.reduce((sum, cell) => sum + cell.members.length, 0) },
+    { label: "Circulars Sent", value: circulars.length },
+    { label: "Selected Emails", value: selectedEmails.length },
+  ];
 
   return (
-    <div className="shell">
+    <div className="shell admin-shell">
       <aside className="sidebar">
         <div>
-          <p className="eyebrow">Equal Opportunity Cell</p>
-          <h2>EOC Hub</h2>
-          <p className="sidebar-copy">{user.name}</p>
-          <p className="sidebar-copy muted">
-            {user.role}
-            {user.cellId ? ` | ${user.cellName}` : ""}
-          </p>
+          <p className="eyebrow">Admin Workspace</p>
+          <h2>EOC Circular Desk</h2>
+          <p className="sidebar-copy">No login required</p>
+          <p className="sidebar-copy muted">Upload circulars and email selected cells.</p>
         </div>
 
         <nav className="nav-list">
           {[
-            ["dashboard", "Dashboard"],
-            ["circulars", "Circulars"],
-            ...(canViewSentCirculars ? [["sent-circulars", "Sent Circulars"]] : []),
-            ["meetings", "Meetings"],
-            ["notifications", "Notifications"],
-            ...(canViewReports ? [["reports", "Reports"]] : []),
-            ...(canCreateCircular ? [["create-circular", "Create Circular"]] : []),
-            ...(canCreateMeeting ? [["create-meeting", "Create Meeting"]] : []),
+            ["compose", "Send Circular"],
+            ["cells", "Cell Members"],
+            ["sent", "Sent Circulars"],
           ].map(([key, label]) => (
             <button
               key={key}
-              className={activeTab === key ? "nav-btn active" : "nav-btn"}
-              onClick={() => setActiveTab(key)}
+              className={activeView === key ? "nav-btn active" : "nav-btn"}
+              onClick={() => setActiveView(key)}
+              type="button"
             >
               {label}
             </button>
           ))}
         </nav>
 
-        <button className="ghost-btn" onClick={logout}>
-          Logout
+        <button className="ghost-btn" onClick={refreshBootstrap} disabled={loading} type="button">
+          {loading ? "Refreshing..." : "Refresh Data"}
         </button>
       </aside>
 
       <main className="content">
         <header className="topbar">
           <div className="topbar-copy">
-            <p className="eyebrow">Dashboard</p>
-            <h1>{dashboard.heroTitle}</h1>
+            <p className="eyebrow">Circular Distribution</p>
+            <h1>Send one circular to every member in a selected cell</h1>
             <p className="topbar-subtext">
-              View your boards, circulars, meetings, notifications, reports, and members in one
-              simple workspace.
+              Pick a cell, attach the circular PDF, and the system will create the record and email
+              each member address listed under that cell.
             </p>
           </div>
-          <div className="badge-row">
-            <button className="topbar-logout-btn" onClick={logout}>
-              Logout
-            </button>
+          <div className="status-stack">
+            <span className="pill">Admin Mode</span>
+            <span className="pill subtle">No Auth</span>
           </div>
         </header>
 
         {error ? <div className="alert">{error}</div> : null}
+        {success ? <div className="success-banner">{success}</div> : null}
 
-        {activeTab === "dashboard" ? (
-          <section className="stack">
-            <div className="stats-grid">
-              {dashboard.stats.map((stat) => (
-                <article key={stat.label} className="stat-card">
-                  <span>{stat.label}</span>
-                  <strong>{stat.value}</strong>
-                </article>
-              ))}
-            </div>
-            <section className="dashboard-section">
-              <div className="section-heading-simple">
-                <p className="eyebrow">Updates</p>
-                <h3>Recent activity</h3>
-              </div>
-              <div className="panel-grid">
-                <ListPanel
-                  title="Recent Circulars"
-                  items={dashboard.recentCirculars}
-                  renderItem={(item) => (
-                    <>
-                      <strong>{item.title}</strong>
-                      <span>{item.cellName}</span>
-                    </>
-                  )}
-                />
-                <ListPanel
-                  title="Notifications"
-                  items={dashboard.notifications}
-                  renderItem={(item) => (
-                    <>
-                      <strong>{item.title}</strong>
-                      <span>{item.message}</span>
-                    </>
-                  )}
-                />
-              </div>
-            </section>
-            {user.role === "Admin" ? (
-              <section className="panel dashboard-section">
-                <div className="section-heading-simple">
-                  <p className="eyebrow">Board Directory</p>
-                  <h3>Open a board and view all members</h3>
-                </div>
-                <div className="board-grid">
-                  {membersDirectory.map((cell) => (
-                    <button
-                      key={cell.id}
-                      className={
-                        selectedBoard?.id === cell.id ? "board-card active" : "board-card"
-                      }
-                      onClick={() => setSelectedBoardId(cell.id)}
-                    >
-                      <p className="eyebrow">Board</p>
-                      <h3>{cell.name}</h3>
-                      <span className="pill subtle">{cell.members.length} members</span>
-                    </button>
-                  ))}
-                </div>
-                {selectedBoard ? (
-                  <div className="board-detail">
-                    <div className="detail-header">
-                      <div>
-                        <p className="eyebrow">Selected Board</p>
-                        <h3>{selectedBoard.name}</h3>
-                      </div>
-                      <span className="pill">{selectedBoard.members.length} members</span>
-                    </div>
-                    <div className="stack compact">
-                      {selectedBoard.members.length ? (
-                        selectedBoard.members.map((member) => (
-                          <div key={member.id} className="member-row">
-                            <strong>{member.name}</strong>
-                            <span>{member.role}</span>
-                            <span>{member.email}</span>
-                            <span>{member.phone || "No phone"}</span>
-                          </div>
-                        ))
-                      ) : (
-                        <p className="muted-dark">No members added yet.</p>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="board-empty-state">
-                    <p className="eyebrow">Select a Board</p>
-                    <h3>Click any board above to view its members</h3>
-                    <p className="muted-dark">
-                      The member list will appear here after you choose a cell.
-                    </p>
-                  </div>
-                )}
-              </section>
-            ) : null}
-          </section>
-        ) : null}
+        <section className="stats-grid admin-stats">
+          {stats.map((stat) => (
+            <article key={stat.label} className="stat-card">
+              <span>{stat.label}</span>
+              <strong>{stat.value}</strong>
+            </article>
+          ))}
+        </section>
 
-        {activeTab === "circulars" ? (
-          <section className="stack">
-            {circulars.map((circular) => (
-              <article key={circular.id} className="detail-card">
-                <div className="detail-header">
-                  <div>
-                    <p className="eyebrow">{circular.cellName}</p>
-                    <h3>{circular.title}</h3>
-                  </div>
-                  <span className="pill subtle">{new Date(circular.createdAt).toLocaleString()}</span>
-                </div>
-                <p>{circular.description}</p>
-                <div className="action-row">
-                    {circular.fileUrl ? (
-                      <button
-                        className="ghost-btn link-btn"
-                        onClick={() => openCircularFile(circular.id)}
-                        type="button"
-                      >
-                        Download PDF
-                      </button>
-                    ) : null}
-                  <button className="ghost-btn" onClick={() => markCircularRead(circular.id)}>
-                    Mark as Read
-                  </button>
-                  <button className="primary-btn" onClick={() => setActiveTab("meetings")}>
-                    Join Meeting
-                  </button>
-                </div>
-              </article>
-            ))}
-          </section>
-        ) : null}
+        {activeView === "compose" ? (
+          <section className="compose-grid">
+            <CellSelector
+              cells={membersDirectory}
+              selectedCellId={selectedCellId}
+              onSelect={chooseCell}
+              onOpenMembers={openMembersTab}
+            />
 
-        {activeTab === "sent-circulars" && canViewSentCirculars ? (
-            <section className="stack">
-              <div className="section-heading-simple">
-                <p className="eyebrow">Admin Tracking</p>
-                <h3>Sent circulars and cell head status</h3>
-              </div>
-              {circulars.map((circular) => (
-                <article key={circular.id} className="detail-card">
-                <div className="detail-header">
-                  <div>
-                    <p className="eyebrow">{circular.cellName}</p>
-                    <h3>{circular.title}</h3>
-                  </div>
-                  <span className="pill subtle">
-                    {new Date(circular.createdAt).toLocaleString()}
-                  </span>
-                  </div>
-                  <p>{circular.description}</p>
-                  {circular.headRecipient ? (
-                    <div className="stack compact">
-                      <div className="recipient-row">
-                        <div>
-                          <strong>{circular.headRecipient.name}</strong>
-                          <p>{circular.headRecipient.email}</p>
-                        </div>
-                        <div className="recipient-meta">
-                          <span>Cell Head</span>
-                          <span
-                            className={
-                              circular.headStatus.read ? "status-chip read" : "status-chip unread"
-                            }
-                          >
-                            {circular.headStatus.read ? "Read" : "Unread"}
-                          </span>
-                          <span>
-                            {circular.headStatus.readAt
-                              ? `Read at ${new Date(circular.headStatus.readAt).toLocaleString()}`
-                              : "Not opened yet"}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="muted-dark">No cell head is assigned for this cell yet.</p>
-                  )}
-                </article>
-              ))}
-            </section>
-        ) : null}
-
-        {activeTab === "meetings" ? (
-          <section className="stack">
-            {meetings.map((meeting) => (
-              <article key={meeting.id} className="detail-card">
-                <div className="detail-header">
-                  <div>
-                    <p className="eyebrow">{meeting.cellName}</p>
-                    <h3>{meeting.title}</h3>
-                  </div>
-                  <span className="pill subtle">{meeting.status}</span>
-                </div>
-                <p>{new Date(meeting.scheduledAt).toLocaleString()}</p>
-                <div className="action-row">
-                  <a
-                    className="primary-btn link-btn"
-                    href={meeting.meetingLink}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    Open Meeting Link
-                  </a>
-                  <button className="ghost-btn" onClick={() => joinMeeting(meeting.id)}>
-                    Join Meeting
-                  </button>
-                  {canViewReports ? (
-                    <button className="ghost-btn" onClick={() => generateSummary(meeting.id)}>
-                      Generate AI Summary
-                    </button>
-                  ) : null}
-                </div>
-              </article>
-            ))}
-          </section>
-        ) : null}
-
-        {activeTab === "notifications" ? (
-          <section className="stack">
-            {notifications.map((notification) => (
-              <article key={notification.id} className="list-card">
+            <section className="form-card">
+              <div className="detail-header">
                 <div>
-                  <strong>{notification.title}</strong>
-                  <p>{notification.message}</p>
+                  <p className="eyebrow">New Circular</p>
+                  <h3>Upload and send</h3>
                 </div>
-                <button
-                  className="ghost-btn"
-                  onClick={() => markNotificationRead(notification.id)}
-                  disabled={notification.read}
+                <span className="pill subtle">
+                  {selectedCell ? `${selectedEmails.length} emails` : "Select a cell"}
+                </span>
+              </div>
+
+              <form className="stack" onSubmit={handleCircularSubmit}>
+                <input
+                  className="input"
+                  placeholder="Circular title"
+                  value={circularForm.title}
+                  onChange={(event) =>
+                    setCircularForm((form) => ({ ...form, title: event.target.value }))
+                  }
+                  required
+                />
+                <textarea
+                  className="input input-area"
+                  placeholder="Short message for the email"
+                  value={circularForm.description}
+                  onChange={(event) =>
+                    setCircularForm((form) => ({ ...form, description: event.target.value }))
+                  }
+                  required
+                />
+                <select
+                  className="input"
+                  value={circularForm.cellId || selectedCellId}
+                  onChange={(event) => chooseCell(event.target.value)}
+                  required
                 >
-                  {notification.read ? "Read" : "Mark Read"}
-                </button>
-              </article>
-            ))}
-          </section>
-        ) : null}
-
-        {activeTab === "reports" && canViewReports ? (
-          <section className="stack">
-            {reports.map((report) => (
-              <article key={report.id} className="detail-card">
-                <div className="detail-header">
-                  <div>
-                    <p className="eyebrow">{report.cellName}</p>
-                    <h3>Minutes of Meeting</h3>
-                  </div>
-                  <span className="pill subtle">{new Date(report.createdAt).toLocaleString()}</span>
-                </div>
-                <SummaryBlock title="Key Points" items={report.summary.keyPoints} />
-                <SummaryBlock title="Decisions" items={report.summary.decisions} />
-                <SummaryBlock title="Action Items" items={report.summary.actionItems} />
-              </article>
-            ))}
-          </section>
-        ) : null}
-
-        {activeTab === "create-circular" && canCreateCircular ? (
-          <section className="form-card">
-            <h3>Create Circular</h3>
-            <form className="stack" onSubmit={handleCircularSubmit}>
-              <input
-                className="input"
-                placeholder="Title"
-                value={circularForm.title}
-                onChange={(event) =>
-                  setCircularForm((form) => ({ ...form, title: event.target.value }))
-                }
-                required
-              />
-              <textarea
-                className="input input-area"
-                placeholder="Description"
-                value={circularForm.description}
-                onChange={(event) =>
-                  setCircularForm((form) => ({ ...form, description: event.target.value }))
-                }
-                required
-              />
-              <select
-                className="input"
-                value={circularForm.cellId}
-                onChange={(event) =>
-                  setCircularForm((form) => ({ ...form, cellId: event.target.value }))
-                }
-                required
-              >
-                <option value="">Select Cell</option>
-                {cells.map((cell) => (
-                  <option key={cell.id} value={cell.id}>
-                    {cell.name}
-                  </option>
-                ))}
-              </select>
-              <input
-                className="input"
-                type="file"
-                accept=".pdf"
-                onChange={(event) =>
-                  setCircularForm((form) => ({ ...form, file: event.target.files?.[0] ?? null }))
-                }
-              />
-              <button className="primary-btn" disabled={loading}>
-                Send Circular
-              </button>
-            </form>
-          </section>
-        ) : null}
-
-        {activeTab === "create-meeting" && canCreateMeeting ? (
-          <section className="form-card">
-            <h3>Schedule Meeting</h3>
-            <form className="stack" onSubmit={handleMeetingSubmit}>
-              <input
-                className="input"
-                placeholder="Meeting title"
-                value={meetingForm.title}
-                onChange={(event) =>
-                  setMeetingForm((form) => ({ ...form, title: event.target.value }))
-                }
-                required
-              />
-              <select
-                className="input"
-                value={meetingForm.cellId}
-                onChange={(event) =>
-                  setMeetingForm((form) => ({ ...form, cellId: event.target.value }))
-                }
-                required
-              >
-                <option value="">Select Cell</option>
-                {cells.map((cell) => (
-                  <option key={cell.id} value={cell.id}>
-                    {cell.name}
-                  </option>
-                ))}
-              </select>
-              <select
-                className="input"
-                value={meetingForm.circularId}
-                onChange={(event) =>
-                  setMeetingForm((form) => ({ ...form, circularId: event.target.value }))
-                }
-              >
-                <option value="">Related Circular (optional)</option>
-                {circulars
-                  .filter((circular) => !meetingForm.cellId || circular.cellId === meetingForm.cellId)
-                  .map((circular) => (
-                    <option key={circular.id} value={circular.id}>
-                      {circular.title}
+                  <option value="">Select Cell</option>
+                  {cells.map((cell) => (
+                    <option key={cell.id} value={cell.id}>
+                      {cell.name}
                     </option>
                   ))}
-              </select>
-              <input
-                className="input"
-                type="datetime-local"
-                value={meetingForm.scheduledAt}
-                onChange={(event) =>
-                  setMeetingForm((form) => ({ ...form, scheduledAt: event.target.value }))
-                }
-                required
-              />
-              <input
-                className="input"
-                placeholder="Google Meet / Zoom link"
-                value={meetingForm.meetingLink}
-                onChange={(event) =>
-                  setMeetingForm((form) => ({ ...form, meetingLink: event.target.value }))
-                }
-                required
-              />
-              <button className="primary-btn" disabled={loading}>
-                Notify Members
-              </button>
-            </form>
+                </select>
+                <label className="file-drop">
+                  <span>Upload circular PDF</span>
+                  <input
+                    key={fileInputKey}
+                    type="file"
+                    accept=".pdf,application/pdf"
+                    onChange={(event) =>
+                      setCircularForm((form) => ({
+                        ...form,
+                        file: event.target.files?.[0] ?? null,
+                      }))
+                    }
+                  />
+                  <strong>{circularForm.file?.name ?? "Choose a PDF file"}</strong>
+                </label>
+                <button className="primary-btn" disabled={loading || !selectedCellId}>
+                  {loading ? "Sending..." : "Send to Cell Members"}
+                </button>
+              </form>
+            </section>
+
+            <RecipientPreview selectedCell={selectedCell} members={selectedMembers} />
           </section>
+        ) : null}
+
+        {activeView === "cells" ? (
+          <CellMembersTabs
+            cells={membersDirectory}
+            activeTab={memberTab}
+            onTabChange={openMembersTab}
+          />
+        ) : null}
+
+        {activeView === "sent" ? (
+          <SentCirculars circulars={circulars} onOpenFile={openCircularFile} />
         ) : null}
       </main>
     </div>
   );
 }
 
-function LoginForm({ onSubmit, loading }) {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+function CellSelector({ cells, selectedCellId, onSelect, onOpenMembers }) {
+  return (
+    <section className="panel cell-selector">
+      <div className="section-heading-simple">
+        <p className="eyebrow">Step 1</p>
+        <h3>Choose cell</h3>
+      </div>
+      <button className="all-cells-btn" onClick={() => onOpenMembers("all")} type="button">
+        View All Cells
+      </button>
+      <div className="cell-picker-list">
+        {cells.map((cell) => (
+          <div key={cell.id} className={selectedCellId === cell.id ? "cell-picker active" : "cell-picker"}>
+            <button onClick={() => onSelect(cell.id)} type="button">
+              <span>{cell.name}</span>
+              <strong>{cell.members.length}</strong>
+            </button>
+            <button className="mini-link-btn" onClick={() => onOpenMembers(cell.id)} type="button">
+              Members
+            </button>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function CellMembersTabs({ cells, activeTab, onTabChange }) {
+  const totalMembers = cells.reduce((sum, cell) => sum + cell.members.length, 0);
+  const activeCell = cells.find((cell) => cell.id === activeTab) ?? null;
 
   return (
-      <form
-        className="stack login-form"
-        onSubmit={(event) => {
-          event.preventDefault();
-          onSubmit(email, password);
-        }}
-      >
-        <label className="input-label login-input-group">
-          <span>Official Email</span>
-          <input
-            className="input"
-            type="email"
-            placeholder="Enter your email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            autoComplete="email"
-            required
-          />
-        </label>
-        <label className="input-label login-input-group">
-          <span>Password</span>
-          <input
-            className="input"
-            type="password"
-            placeholder="Enter your password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            autoComplete="current-password"
-            required
-          />
-        </label>
-        <button className="primary-btn login-submit-btn" disabled={loading}>
-          {loading ? "Signing In..." : "Login to Portal"}
+    <section className="panel members-workspace">
+      <div className="detail-header">
+        <div>
+          <p className="eyebrow">Cell Members</p>
+          <h3>{activeCell ? activeCell.name : "All Cells"}</h3>
+        </div>
+        <span className="pill">{activeCell ? activeCell.members.length : totalMembers} members</span>
+      </div>
+
+      <div className="member-tabs" role="tablist" aria-label="Cell member tabs">
+        <button
+          className={activeTab === "all" ? "member-tab active" : "member-tab"}
+          onClick={() => onTabChange("all")}
+          type="button"
+          role="tab"
+        >
+          All Cells
         </button>
-      </form>
+        {cells.map((cell) => (
+          <button
+            key={cell.id}
+            className={activeTab === cell.id ? "member-tab active" : "member-tab"}
+            onClick={() => onTabChange(cell.id)}
+            type="button"
+            role="tab"
+          >
+            {cell.name}
+          </button>
+        ))}
+      </div>
+
+      {activeCell ? (
+        <MemberTable members={activeCell.members} />
+      ) : (
+        <div className="all-cells-grid">
+          {cells.map((cell) => (
+            <article key={cell.id} className="cell-members-card">
+              <div className="detail-header">
+                <div>
+                  <p className="eyebrow">Cell</p>
+                  <h3>{cell.name}</h3>
+                </div>
+                <button className="ghost-btn" onClick={() => onTabChange(cell.id)} type="button">
+                  Open
+                </button>
+              </div>
+              <MemberTable members={cell.members.slice(0, 4)} compact />
+              {cell.members.length > 4 ? (
+                <p className="muted-dark">{cell.members.length - 4} more members</p>
+              ) : null}
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function MemberTable({ members, compact = false }) {
+  if (!members.length) {
+    return <p className="muted-dark">No members are added yet.</p>;
+  }
+
+  return (
+    <div className={compact ? "member-table compact-table" : "member-table"}>
+      <div className="member-table-head">
+        <span>Name</span>
+        <span>Role</span>
+        <span>Email</span>
+        {!compact ? <span>Phone</span> : null}
+      </div>
+      {members.map((member) => (
+        <article key={member.id} className="member-table-row">
+          <strong>{member.name}</strong>
+          <span>{member.designation || member.role}</span>
+          <span>{member.email || "No email address"}</span>
+          {!compact ? <span>{member.phone || "No phone"}</span> : null}
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function RecipientPreview({ selectedCell, members }) {
+  if (!selectedCell) {
+    return (
+      <section className="panel">
+        <p className="eyebrow">Recipients</p>
+        <h3>Select a cell first</h3>
+        <p className="muted-dark">The member email preview will appear here.</p>
+      </section>
     );
   }
 
-function LandingPage({ onLogin, loading, error }) {
-  const [highlightLogin, setHighlightLogin] = useState(false);
-
-  function focusLogin() {
-    setHighlightLogin(true);
-    const loginSection = document.getElementById("portal");
-    loginSection?.scrollIntoView({ behavior: "smooth", block: "center" });
-    window.setTimeout(() => setHighlightLogin(false), 1800);
-  }
-
-  return (
-    <div className="landing-shell">
-      <nav className="landing-nav">
-        <div className="landing-brand">
-          <span className="landing-brand-mark">E</span>
-          <span>EOC Connect</span>
-        </div>
-        <div className="landing-nav-links">
-          <a href="#about">About</a>
-          <a href="#features">Features</a>
-          <a href="#portal">Portal</a>
-        </div>
-        <button
-          className="landing-outline-btn"
-          onClick={focusLogin}
-        >
-          Login
-        </button>
-      </nav>
-
-      <main className="landing-main">
-        <section className="landing-hero">
-          <div className="landing-hero-copy">
-            <p className="eyebrow">Official Equal Opportunity Cell Website</p>
-            <h1>
-              Login to
-              <span> EOC Connect</span>
-              and enter the portal quickly.
-            </h1>
-            <p className="landing-lead">
-              This website is the central place for Equal Opportunity Cell communication. Users can
-              sign in with their assigned account to view circulars, meetings, notifications,
-              reports, and board information based on their role.
-            </p>
-            <div className="landing-cta-row">
-              <button
-                className="landing-primary-btn"
-                onClick={focusLogin}
-              >
-                Login Now
-              </button>
-              <a className="landing-text-link" href="#about">
-                Learn About the Portal
-              </a>
-            </div>
-            <div className="landing-highlights">
-              <div className="highlight-chip">Direct login access</div>
-              <div className="highlight-chip">Role-based dashboard</div>
-              <div className="highlight-chip">Circulars and notifications</div>
-            </div>
-            <div className="landing-hero-metadata">
-              <article className="hero-meta-card">
-                <strong>Who Uses It</strong>
-                <p>Chairman, cell heads, faculty members, staff, and student representatives.</p>
-              </article>
-              <article className="hero-meta-card">
-                <strong>Why It Exists</strong>
-                <p>To manage official circulars, cell communication, meetings, and reports in one place.</p>
-              </article>
-              <article className="hero-meta-card">
-                <strong>What Happens After Login</strong>
-                <p>You see only the data and actions that belong to your role and cell access.</p>
-              </article>
-            </div>
-          </div>
-
-          <div className="landing-hero-panel">
-            <div
-              className={highlightLogin ? "hero-portal-card login-highlight login-priority-card" : "hero-portal-card login-priority-card"}
-              id="portal"
-            >
-              <p className="eyebrow">Portal Login</p>
-              <h3>Sign in to continue</h3>
-              <p>
-                Use your assigned email and password to enter the EOC portal.
-              </p>
-              <div className="landing-login-notes">
-                <div className="landing-login-note">
-                  <strong>Step 1</strong>
-                  <span>Enter your official email</span>
-                </div>
-                <div className="landing-login-note">
-                  <strong>Step 2</strong>
-                  <span>Enter your password</span>
-                </div>
-                <div className="landing-login-note">
-                  <strong>Step 3</strong>
-                  <span>Open your dashboard</span>
-                </div>
-              </div>
-              <LoginForm onSubmit={onLogin} loading={loading} />
-              {error ? <p className="error-text">{error}</p> : null}
-              <div className="landing-login-footer">
-                <span>Need access help?</span>
-                <p>Contact the chairman or your cell head for account support.</p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="landing-summary-grid simple" id="about">
-          <article className="summary-card">
-            <h3>About the Website</h3>
-            <p>
-              This is the official website and portal for the Equal Opportunity Cell.
-            </p>
-          </article>
-          <article className="summary-card accent">
-            <h3>Who Can Use It</h3>
-            <p>
-              Students, faculty, staff, board heads, and admin users can all use the platform.
-            </p>
-          </article>
-          <article className="summary-card dark">
-            <h3>What You Can Do</h3>
-            <p>
-              After login, users can check circulars, meetings, notifications, reports, and member
-              details based on their role.
-            </p>
-          </article>
-        </section>
-
-        <section className="landing-panel" id="features">
-          <div className="section-heading">
-            <p className="eyebrow">Main Features</p>
-            <h2>What the portal gives you</h2>
-            <p>
-              The website is mainly for understanding the platform and quickly entering the working
-              EOC portal.
-            </p>
-          </div>
-          <div className="quick-help-grid simple">
-            <article className="quick-help-card">
-              <h3>Login Access</h3>
-              <p>Enter the portal directly from the landing page.</p>
-            </article>
-            <article className="quick-help-card">
-              <h3>Role-Based Use</h3>
-              <p>Admin, cell heads, and members each get the correct view.</p>
-            </article>
-            <article className="quick-help-card">
-              <h3>Board Management</h3>
-              <p>Chairman can view all boards and open member details board by board.</p>
-            </article>
-            <article className="quick-help-card">
-              <h3>Meetings & Reports</h3>
-              <p>Track circulars, meetings, AI summaries, and reports from one portal.</p>
-            </article>
-          </div>
-        </section>
-      </main>
-    </div>
-  );
-}
-
-function ListPanel({ title, items, renderItem }) {
   return (
     <section className="panel">
       <div className="detail-header">
-        <h3>{title}</h3>
+        <div>
+          <p className="eyebrow">Recipients</p>
+          <h3>{selectedCell.name}</h3>
+        </div>
+        <span className="pill">{members.length} members</span>
       </div>
-      <div className="stack compact">
-        {items.length ? (
-          items.map((item) => (
-            <article key={item.id} className="list-card">
-              {renderItem(item)}
+      <div className="recipient-preview-list">
+        {members.length ? (
+          members.map((member) => (
+            <article key={member.id} className="member-row recipient-preview-row">
+              <strong>{member.name}</strong>
+              <span>{member.designation || member.role}</span>
+              <span>{member.email || "No email address"}</span>
             </article>
           ))
         ) : (
-          <p className="muted-dark">No items yet.</p>
+          <p className="muted-dark">No members are added to this cell yet.</p>
         )}
       </div>
     </section>
   );
 }
 
-function SummaryBlock({ title, items }) {
+function SentCirculars({ circulars, onOpenFile }) {
   return (
-    <div className="summary-block">
-      <h4>{title}</h4>
-      <ul>
-        {items.map((item) => (
-          <li key={item}>{item}</li>
-        ))}
-      </ul>
-    </div>
+    <section className="stack">
+      <div className="section-heading-simple">
+        <p className="eyebrow">Delivery History</p>
+        <h3>Sent circulars and email status</h3>
+      </div>
+      {circulars.length ? (
+        circulars.map((circular) => (
+          <article key={circular.id} className="detail-card sent-circular-card">
+            <div className="detail-header">
+              <div>
+                <p className="eyebrow">{circular.cellName}</p>
+                <h3>{circular.title}</h3>
+              </div>
+              <span className="pill subtle">{new Date(circular.createdAt).toLocaleString()}</span>
+            </div>
+            <p>{circular.description}</p>
+            <div className="delivery-summary-row">
+              <span className="status-chip total">
+                {circular.deliverySummary?.total ?? circular.recipients?.length ?? 0} recipients
+              </span>
+              <span className="status-chip read">
+                {circular.deliverySummary?.sent ?? 0} sent
+              </span>
+              <span className="status-chip unread">
+                {circular.deliverySummary?.failed ?? 0} failed
+              </span>
+              <span className="status-chip muted-status">
+                {circular.deliverySummary?.notConfigured ?? 0} not configured
+              </span>
+            </div>
+            {circular.fileUrl ? (
+              <button className="ghost-btn link-btn" onClick={() => onOpenFile(circular.id)}>
+                Open Uploaded PDF
+              </button>
+            ) : null}
+            <div className="email-status-grid">
+              {(circular.recipients ?? []).map((recipient) => (
+                <article key={recipient.id} className="recipient-row">
+                  <div>
+                    <strong>{recipient.name}</strong>
+                    <p>{recipient.email}</p>
+                  </div>
+                  <div className="recipient-meta">
+                    <span>{recipient.designation || recipient.role}</span>
+                    <span className={`status-chip ${statusClass(recipient.emailStatus)}`}>
+                      {formatEmailStatus(recipient.emailStatus)}
+                    </span>
+                    <span>
+                      {recipient.emailedAt
+                        ? new Date(recipient.emailedAt).toLocaleString()
+                        : recipient.emailError || "Waiting for SMTP"}
+                    </span>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </article>
+        ))
+      ) : (
+        <section className="panel">
+          <p className="muted-dark">No circulars have been sent yet.</p>
+        </section>
+      )}
+    </section>
   );
+}
+
+function statusClass(status) {
+  if (status === "sent") {
+    return "read";
+  }
+
+  if (status === "failed" || status === "skipped") {
+    return "unread";
+  }
+
+  return "muted-status";
+}
+
+function formatEmailStatus(status) {
+  if (!status) {
+    return "Pending";
+  }
+
+  return status
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function buildSendMessage(circular) {
+  const summary = circular.deliverySummary;
+  if (!summary) {
+    return "Circular created and member emails were processed.";
+  }
+
+  if (summary.sent > 0) {
+    return `Circular sent to ${summary.sent} member email${summary.sent === 1 ? "" : "s"}.`;
+  }
+
+  if (summary.notConfigured > 0) {
+    return "Circular saved. SMTP is not configured yet, so emails were recorded as not configured.";
+  }
+
+  return "Circular saved. Check delivery history for each recipient status.";
 }
 
 export default App;

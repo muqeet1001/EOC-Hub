@@ -27,7 +27,7 @@ export const users = [
   {
     id: "user-admin",
     name: "Chairman Admin",
-    email: "admin@eochub.test",
+    email: "abdul000muqee@gmail.com",
     password: "admin123",
     role: roles.ADMIN,
     cellId: null,

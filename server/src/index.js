@@ -1,4 +1,7 @@
 import "dotenv/config";
+import fs from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import express from "express";
 import cors from "cors";
 import jwt from "jsonwebtoken";
@@ -6,6 +9,7 @@ import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
 import { connectDatabase, ensureSeedData } from "./db.js";
 import { roles } from "./data.js";
+import { getMailerStatus } from "./email.js";
 import { Circular, User } from "./models.js";
 import {
   buildBootstrap,
@@ -24,6 +28,8 @@ import {
 const app = express();
 const PORT = process.env.PORT || 4000;
 const JWT_SECRET = process.env.JWT_SECRET || "eoc-hub-secret";
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const uploadRoot = path.resolve(__dirname, "..", "uploads");
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -42,38 +48,75 @@ if (cloudinaryConfigured) {
 
 app.use(cors());
 app.use(express.json());
+app.use("/uploads", express.static(uploadRoot));
+
+function publicBaseUrl() {
+  return process.env.PUBLIC_APP_URL || `http://localhost:${PORT}`;
+}
+
+function safeUploadName(originalName) {
+  const parsed = path.parse(originalName || "circular.pdf");
+  const base = parsed.name
+    .replace(/[^a-zA-Z0-9-_]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 80);
+  const ext = parsed.ext || ".pdf";
+
+  return `${Date.now()}-${base || "circular"}${ext}`;
+}
 
 async function uploadCircularFile(file) {
   if (!file) {
-    return { fileUrl: null, filePublicId: null };
+    return {
+      fileUrl: null,
+      filePublicId: null,
+      fileName: "",
+      fileMimeType: "",
+      fileSize: 0,
+    };
   }
 
-  if (!cloudinaryConfigured) {
-    throw new Error("Cloudinary is not configured. Add Cloudinary environment variables.");
+  if (cloudinaryConfigured) {
+    return new Promise((resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream(
+        {
+          folder: process.env.CLOUDINARY_FOLDER || "eoc-hub/circulars",
+          resource_type: "raw",
+          public_id: safeUploadName(file.originalname),
+        },
+        (error, result) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+
+          resolve({
+            fileUrl: result?.secure_url ?? null,
+            filePublicId: result?.public_id ?? null,
+            fileName: file.originalname,
+            fileMimeType: file.mimetype,
+            fileSize: file.size,
+          });
+        },
+      );
+
+      stream.end(file.buffer);
+    });
   }
 
-  return new Promise((resolve, reject) => {
-    const stream = cloudinary.uploader.upload_stream(
-      {
-        folder: process.env.CLOUDINARY_FOLDER || "eoc-hub/circulars",
-        resource_type: "raw",
-        public_id: `${Date.now()}-${file.originalname.replace(/\s+/g, "-")}`,
-      },
-      (error, result) => {
-        if (error) {
-          reject(error);
-          return;
-        }
+  const uploadDirectory = path.join(uploadRoot, "circulars");
+  await fs.mkdir(uploadDirectory, { recursive: true });
+  const storedName = safeUploadName(file.originalname);
+  await fs.writeFile(path.join(uploadDirectory, storedName), file.buffer);
 
-        resolve({
-          fileUrl: result?.secure_url ?? null,
-          filePublicId: result?.public_id ?? null,
-        });
-      },
-    );
-
-    stream.end(file.buffer);
-  });
+  return {
+    fileUrl: `${publicBaseUrl()}/uploads/circulars/${storedName}`,
+    filePublicId: null,
+    fileName: file.originalname,
+    fileMimeType: file.mimetype,
+    fileSize: file.size,
+  };
 }
 
 function buildSignedFileUrl(filePublicId) {
@@ -92,27 +135,36 @@ function buildSignedFileUrl(filePublicId) {
   });
 }
 
+async function getAdminUser() {
+  return User.findOne({ role: roles.ADMIN }).lean();
+}
+
 async function authRequired(req, res, next) {
   const header = req.headers.authorization;
   const token = header?.startsWith("Bearer ") ? header.slice(7) : null;
 
-  if (!token) {
-    return res.status(401).json({ message: "Missing token" });
-  }
+  if (token) {
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET);
+      const user = await findUserById(decoded.userId);
 
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    const user = await findUserById(decoded.userId);
-
-    if (!user) {
-      return res.status(401).json({ message: "Invalid token user" });
+      if (user) {
+        req.user = user;
+        next();
+        return;
+      }
+    } catch (_error) {
+      // No-auth admin mode intentionally falls back to the admin account.
     }
-
-    req.user = user;
-    next();
-  } catch (error) {
-    return res.status(401).json({ message: "Invalid token" });
   }
+
+  const admin = await getAdminUser();
+  if (!admin) {
+    return res.status(500).json({ message: "Admin account is not seeded yet" });
+  }
+
+  req.user = admin;
+  next();
 }
 
 function allowRoles(...allowed) {
@@ -128,7 +180,7 @@ function allowRoles(...allowed) {
 }
 
 app.get("/api/health", async (_req, res) => {
-  res.json({ status: "ok", database: "connected" });
+  res.json({ status: "ok", database: "connected", mailer: getMailerStatus() });
 });
 
 app.post("/api/auth/login", async (req, res) => {
@@ -178,6 +230,10 @@ app.get("/api/circulars/:id/file", authRequired, async (req, res) => {
   }
 
   if (!circular.filePublicId) {
+    if (circular.fileUrl) {
+      return res.json({ url: circular.fileUrl });
+    }
+
     return res.status(404).json({ message: "No file available for this circular" });
   }
 
@@ -210,6 +266,9 @@ app.post(
         createdBy: req.user.id,
         fileUrl: uploadResult.fileUrl,
         filePublicId: uploadResult.filePublicId,
+        fileName: uploadResult.fileName,
+        fileMimeType: uploadResult.fileMimeType,
+        fileSize: uploadResult.fileSize,
       });
 
       return res.status(201).json(circular);
