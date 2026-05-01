@@ -1,15 +1,14 @@
 import "dotenv/config";
-import fs from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import express from "express";
 import cors from "cors";
 import jwt from "jsonwebtoken";
 import multer from "multer";
-import { v2 as cloudinary } from "cloudinary";
 import { connectDatabase, ensureSeedData } from "./db.js";
 import { roles } from "./data.js";
 import { getMailerStatus } from "./email.js";
+import { readEnv, readNumberEnv } from "./env.js";
+import { getMemoryStoreReason, isMemoryStoreEnabled } from "./memory-store.js";
 import { Circular, User } from "./models.js";
 import {
   buildBootstrap,
@@ -26,35 +25,31 @@ import {
 } from "./services.js";
 
 const app = express();
-const PORT = process.env.PORT || 4000;
-const JWT_SECRET = process.env.JWT_SECRET || "eoc-hub-secret";
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const uploadRoot = path.resolve(__dirname, "..", "uploads");
+const PORT = readNumberEnv("PORT", 4000);
+const JWT_SECRET = readEnv("JWT_SECRET");
+const ADMIN_EMAIL = readEnv("ADMIN_EMAIL");
+const ADMIN_PASSWORD = readEnv("ADMIN_PASSWORD");
+const MAX_ATTACHMENT_SIZE_MB = readNumberEnv("MAX_ATTACHMENT_SIZE_MB", 10);
 
-const upload = multer({ storage: multer.memoryStorage() });
-
-const cloudinaryConfigured =
-  process.env.CLOUDINARY_CLOUD_NAME &&
-  process.env.CLOUDINARY_API_KEY &&
-  process.env.CLOUDINARY_API_SECRET;
-
-if (cloudinaryConfigured) {
-  cloudinary.config({
-    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-    api_key: process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET,
-  });
+if (!JWT_SECRET) {
+  throw new Error("JWT_SECRET must be set before starting the server");
 }
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: MAX_ATTACHMENT_SIZE_MB * 1024 * 1024,
+  },
+});
 
 app.use(cors());
 app.use(express.json());
-app.use("/uploads", express.static(uploadRoot));
 
 function publicBaseUrl() {
-  return process.env.PUBLIC_APP_URL || `http://localhost:${PORT}`;
+  return readEnv("PUBLIC_APP_URL", `http://localhost:${PORT}`);
 }
 
-function safeUploadName(originalName) {
+function safeAttachmentName(originalName) {
   const parsed = path.parse(originalName || "circular.pdf");
   const base = parsed.name
     .replace(/[^a-zA-Z0-9-_]+/g, "-")
@@ -63,107 +58,46 @@ function safeUploadName(originalName) {
     .slice(0, 80);
   const ext = parsed.ext || ".pdf";
 
-  return `${Date.now()}-${base || "circular"}${ext}`;
+  return `${base || "circular"}${ext}`;
 }
 
-async function uploadCircularFile(file) {
+function buildAttachment(file) {
   if (!file) {
-    return {
-      fileUrl: null,
-      filePublicId: null,
-      fileName: "",
-      fileMimeType: "",
-      fileSize: 0,
-    };
-  }
-
-  if (cloudinaryConfigured) {
-    return new Promise((resolve, reject) => {
-      const stream = cloudinary.uploader.upload_stream(
-        {
-          folder: process.env.CLOUDINARY_FOLDER || "eoc-hub/circulars",
-          resource_type: "raw",
-          public_id: safeUploadName(file.originalname),
-        },
-        (error, result) => {
-          if (error) {
-            reject(error);
-            return;
-          }
-
-          resolve({
-            fileUrl: result?.secure_url ?? null,
-            filePublicId: result?.public_id ?? null,
-            fileName: file.originalname,
-            fileMimeType: file.mimetype,
-            fileSize: file.size,
-          });
-        },
-      );
-
-      stream.end(file.buffer);
-    });
-  }
-
-  const uploadDirectory = path.join(uploadRoot, "circulars");
-  await fs.mkdir(uploadDirectory, { recursive: true });
-  const storedName = safeUploadName(file.originalname);
-  await fs.writeFile(path.join(uploadDirectory, storedName), file.buffer);
-
-  return {
-    fileUrl: `${publicBaseUrl()}/uploads/circulars/${storedName}`,
-    filePublicId: null,
-    fileName: file.originalname,
-    fileMimeType: file.mimetype,
-    fileSize: file.size,
-  };
-}
-
-function buildSignedFileUrl(filePublicId) {
-  if (!filePublicId || !cloudinaryConfigured) {
     return null;
   }
 
-  const extensionMatch = filePublicId.match(/^(.*)\.([^.]+)$/);
-  const format = extensionMatch ? extensionMatch[2] : undefined;
-
-  return cloudinary.utils.private_download_url(filePublicId, format, {
-    resource_type: "raw",
-    type: "upload",
-    attachment: false,
-    expires_at: Math.floor(Date.now() / 1000) + 60 * 60,
-  });
-}
-
-async function getAdminUser() {
-  return User.findOne({ role: roles.ADMIN }).lean();
+  return {
+    fileName: safeAttachmentName(file.originalname),
+    fileMimeType: file.mimetype,
+    fileSize: file.size,
+    buffer: file.buffer,
+  };
 }
 
 async function authRequired(req, res, next) {
-  const header = req.headers.authorization;
-  const token = header?.startsWith("Bearer ") ? header.slice(7) : null;
+  // Always use admin user - no authentication required
+  let fallbackUser =
+    (await User.findOne({ role: roles.ADMIN }).lean()) ?? (await User.findOne({}).lean());
 
-  if (token) {
-    try {
-      const decoded = jwt.verify(token, JWT_SECRET);
-      const user = await findUserById(decoded.userId);
-
-      if (user) {
-        req.user = user;
-        next();
-        return;
-      }
-    } catch (_error) {
-      // No-auth admin mode intentionally falls back to the admin account.
-    }
+  if (!fallbackUser && ADMIN_EMAIL) {
+    const created = await User.create({
+      id: "user-admin",
+      name: "Admin",
+      email: ADMIN_EMAIL,
+      password: ADMIN_PASSWORD || "",
+      role: roles.ADMIN,
+      cellId: null,
+      phone: "",
+      designation: "",
+    });
+    fallbackUser = created.toObject();
   }
 
-  const admin = await getAdminUser();
-  if (!admin) {
-    return res.status(500).json({ message: "Admin account is not seeded yet" });
+  if (!fallbackUser) {
+    return res.status(500).json({ message: "No admin user configured" });
   }
 
-  req.user = admin;
+  req.user = fallbackUser;
   next();
 }
 
@@ -180,27 +114,15 @@ function allowRoles(...allowed) {
 }
 
 app.get("/api/health", async (_req, res) => {
-  res.json({ status: "ok", database: "connected", mailer: getMailerStatus() });
-});
-
-app.post("/api/auth/login", async (req, res) => {
-  const { email, password } = req.body;
-  const accountUsers = await User.find({ email }).lean();
-  const user = accountUsers.find((item) => item.password === password);
-
-  if (!user) {
-    return res.status(401).json({ message: "Invalid email or password" });
-  }
-
-  const token = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, {
-    expiresIn: "8h",
-  });
-
-  return res.json({
-    token,
-    bootstrap: await buildBootstrap(user),
+  res.json({
+    status: "ok",
+    database: isMemoryStoreEnabled() ? "memory-fallback" : "connected",
+    fallbackReason: isMemoryStoreEnabled() ? getMemoryStoreReason() : null,
+    mailer: getMailerStatus(),
   });
 });
+
+// Login endpoint removed - no authentication required
 
 app.get("/api/bootstrap", authRequired, async (req, res) => {
   res.json(await buildBootstrap(req.user));
@@ -219,32 +141,6 @@ app.get("/api/circulars/:id", authRequired, async (req, res) => {
   return res.json(circular);
 });
 
-app.get("/api/circulars/:id/file", authRequired, async (req, res) => {
-  const circular = await Circular.findOne({ id: req.params.id }).lean();
-  if (!circular) {
-    return res.status(404).json({ message: "Circular not found" });
-  }
-
-  if (!(await hasCellAccess(req.user, circular.cellId))) {
-    return res.status(403).json({ message: "No cross-cell visibility allowed" });
-  }
-
-  if (!circular.filePublicId) {
-    if (circular.fileUrl) {
-      return res.json({ url: circular.fileUrl });
-    }
-
-    return res.status(404).json({ message: "No file available for this circular" });
-  }
-
-  const signedUrl = buildSignedFileUrl(circular.filePublicId);
-  if (!signedUrl) {
-    return res.status(500).json({ message: "Cloudinary is not configured." });
-  }
-
-  return res.json({ url: signedUrl });
-});
-
 app.post(
   "/api/circulars",
   authRequired,
@@ -258,17 +154,17 @@ app.post(
         return res.status(400).json({ message: "Title, description, and cell are required" });
       }
 
-      const uploadResult = await uploadCircularFile(req.file);
+      if (req.file && req.file.mimetype !== "application/pdf") {
+        return res.status(400).json({ message: "Only PDF circular attachments are supported" });
+      }
+
+      const attachment = buildAttachment(req.file);
       const circular = await createCircular({
         title,
         description,
         cellId,
         createdBy: req.user.id,
-        fileUrl: uploadResult.fileUrl,
-        filePublicId: uploadResult.filePublicId,
-        fileName: uploadResult.fileName,
-        fileMimeType: uploadResult.fileMimeType,
-        fileSize: uploadResult.fileSize,
+        attachment,
       });
 
       return res.status(201).json(circular);
@@ -361,12 +257,27 @@ app.patch("/api/notifications/:id/read", authRequired, async (req, res) => {
   return res.json(notification);
 });
 
+app.use((error, _req, res, next) => {
+  if (error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE") {
+    return res.status(400).json({
+      message: `Attachment exceeds the ${MAX_ATTACHMENT_SIZE_MB} MB upload limit`,
+    });
+  }
+
+  if (error) {
+    return res.status(500).json({ message: error.message || "Unexpected server error" });
+  }
+
+  return next();
+});
+
 async function start() {
   try {
     await connectDatabase();
     await ensureSeedData();
     app.listen(PORT, () => {
-      console.log(`EOC Hub backend running at http://localhost:${PORT}`);
+      const storeLabel = isMemoryStoreEnabled() ? "memory fallback" : "MongoDB";
+      console.log(`EOC Hub backend running at ${publicBaseUrl()} using ${storeLabel}`);
     });
   } catch (error) {
     console.error("Failed to start server:", error.message);

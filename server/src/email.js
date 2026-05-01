@@ -1,22 +1,33 @@
 import nodemailer from "nodemailer";
+import { readBooleanEnv, readEnv, readNumberEnv } from "./env.js";
 
 let transporter;
-const DEFAULT_TEST_EMAIL_RECIPIENT = "abdul00muqeet@gmail.com";
 
 function smtpConfigured() {
-  return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+  return Boolean(readEnv("SMTP_HOST") && readEnv("SMTP_USER") && readEnv("SMTP_PASS"));
+}
+
+function readSmtpPassword() {
+  const password = readEnv("SMTP_PASS");
+  const host = readEnv("SMTP_HOST");
+
+  if (host === "smtp.gmail.com") {
+    return password.replace(/\s+/g, "");
+  }
+
+  return password;
 }
 
 function getTransporter() {
   if (!transporter) {
-    const port = Number(process.env.SMTP_PORT || 587);
+    const port = readNumberEnv("SMTP_PORT", 587);
     transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
+      host: readEnv("SMTP_HOST"),
       port,
-      secure: process.env.SMTP_SECURE === "true" || port === 465,
+      secure: readEnv("SMTP_SECURE") === "true" || port === 465,
       auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
+        user: readEnv("SMTP_USER"),
+        pass: readSmtpPassword(),
       },
     });
   }
@@ -28,13 +39,62 @@ export function getMailerStatus() {
   return smtpConfigured() ? "configured" : "not_configured";
 }
 
-export function getTestEmailRecipient() {
-  return process.env.TEST_EMAIL_RECIPIENT || DEFAULT_TEST_EMAIL_RECIPIENT;
+function emailTestModeEnabled() {
+  return readBooleanEnv("EMAIL_TEST_MODE", false);
 }
 
-export async function sendCircularEmail({ recipient, circular, cellName }) {
+function getTestEmailRecipient() {
+  return readEnv("EMAIL_TEST_RECIPIENT");
+}
+
+function resolveDeliveryAddress(recipient) {
   const testRecipient = getTestEmailRecipient();
-  const deliveryAddress = testRecipient || recipient.email;
+
+  if (emailTestModeEnabled() && testRecipient) {
+    return {
+      address: testRecipient,
+      testMode: true,
+    };
+  }
+
+  return {
+    address: recipient.email,
+    testMode: false,
+  };
+}
+
+function buildCircularHtml({ recipient, circular, cellName, testMode }) {
+  const summaryParagraphs = escapeHtml(circular.description)
+    .split(/\n+/)
+    .filter(Boolean)
+    .map((line) => `<p>${line}</p>`)
+    .join("");
+
+  const attachmentNote = circular.fileName
+    ? `<p><strong>Attachment:</strong> ${escapeHtml(circular.fileName)}</p>`
+    : "";
+
+  const testModeNote = testMode
+    ? `<p><strong>Testing mode:</strong> This message was redirected from ${escapeHtml(
+        recipient.email || "the member address on file",
+      )}.</p>`
+    : "";
+
+  return `
+    <div style="font-family: Arial, sans-serif; color: #172033; line-height: 1.6;">
+      <p>Dear ${escapeHtml(recipient.name)},</p>
+      <p>A new circular has been shared for <strong>${escapeHtml(cellName)}</strong>.</p>
+      ${testModeNote}
+      <p><strong>Title:</strong> ${escapeHtml(circular.title)}</p>
+      ${summaryParagraphs || "<p>Please see the attached circular.</p>"}
+      ${attachmentNote}
+      <p>Regards,<br>EOC Administration</p>
+    </div>
+  `;
+}
+
+export async function sendCircularEmail({ recipient, circular, cellName, attachment }) {
+  const { address: deliveryAddress, testMode } = resolveDeliveryAddress(recipient);
 
   if (!deliveryAddress) {
     return {
@@ -55,50 +115,43 @@ export async function sendCircularEmail({ recipient, circular, cellName }) {
     };
   }
 
-  const fileLine = circular.fileUrl ? `\nCircular PDF: ${circular.fileUrl}` : "";
+  const fileLine = circular.fileName ? `\nAttachment: ${circular.fileName}` : "";
   const text = [
     `Dear ${recipient.name},`,
     "",
     `A new circular has been shared for ${cellName}.`,
-    testRecipient ? `Testing note: original member email was ${recipient.email || "not available"}.` : "",
+    testMode
+      ? `Testing mode: original recipient was ${recipient.email || "not available"}.`
+      : "",
     "",
     `Title: ${circular.title}`,
     circular.description,
     fileLine.trim(),
     "",
     "Regards,",
-    "EOC Admin",
+    "EOC Administration",
   ]
     .filter(Boolean)
     .join("\n");
 
-  const html = `
-    <p>Dear ${escapeHtml(recipient.name)},</p>
-    <p>A new circular has been shared for <strong>${escapeHtml(cellName)}</strong>.</p>
-    ${
-      testRecipient
-        ? `<p><strong>Testing note:</strong> Original member email was ${escapeHtml(
-            recipient.email || "not available",
-          )}.</p>`
-        : ""
-    }
-    <p><strong>Title:</strong> ${escapeHtml(circular.title)}</p>
-    <p>${escapeHtml(circular.description).replace(/\n/g, "<br>")}</p>
-    ${
-      circular.fileUrl
-        ? `<p><a href="${escapeAttribute(circular.fileUrl)}">Open Circular PDF</a></p>`
-        : ""
-    }
-    <p>Regards,<br>EOC Admin</p>
-  `;
+  const html = buildCircularHtml({ recipient, circular, cellName, testMode });
 
   try {
     const info = await getTransporter().sendMail({
-      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      from: readEnv("SMTP_FROM") || readEnv("SMTP_USER"),
       to: deliveryAddress,
       subject: `[${cellName}] ${circular.title}`,
       text,
       html,
+      attachments: attachment
+        ? [
+            {
+              filename: attachment.fileName,
+              content: attachment.buffer,
+              contentType: attachment.fileMimeType,
+            },
+          ]
+        : [],
     });
 
     return {
@@ -122,8 +175,4 @@ function escapeHtml(value) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
-}
-
-function escapeAttribute(value) {
-  return escapeHtml(value).replace(/"/g, "&quot;");
 }

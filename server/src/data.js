@@ -27,7 +27,7 @@ export const users = [
   {
     id: "user-admin",
     name: "Chairman Admin",
-    email: "abdul000muqee@gmail.com",
+    email: "abdul000muqeet@gmail.com",
     password: "admin123",
     role: roles.ADMIN,
     cellId: null,
@@ -1926,62 +1926,13 @@ export const users = [
   },
 ];
 
-export const circulars = [
-  {
-    id: "circular-1",
-    title: "Scholarship Review Circular",
-    description: "Discuss outreach activities and pending scholarship grievances.",
-    cellId: "cell-obc",
-    createdBy: "user-admin",
-    createdAt: new Date().toISOString(),
-    fileUrl: null,
-    readBy: ["user-head-obc-salim-sharieff"],
-  },
-];
+export const circulars = [];
 
-export const meetings = [
-  {
-    id: "meeting-1",
-    circularId: "circular-1",
-    cellId: "cell-obc",
-    title: "OBC Cell Coordination Meeting",
-    scheduledAt: new Date(Date.now() + 86400000).toISOString(),
-    meetingLink: "https://meet.google.com/example-obc",
-    createdBy: "user-head-obc-salim-sharieff",
-    attendees: ["user-head-obc-salim-sharieff"],
-    status: "Scheduled",
-  },
-];
+export const meetings = [];
 
-export const reports = [
-  {
-    id: "report-1",
-    meetingId: "meeting-1",
-    cellId: "cell-obc",
-    summary: {
-      keyPoints: [
-        "Reviewed current circular outreach progress.",
-        "Aligned volunteers for member support follow-ups.",
-      ],
-      decisions: ["Weekly grievance review will start next Monday."],
-      actionItems: ["Share outreach tracker with all OBC cell members."],
-    },
-    createdAt: new Date().toISOString(),
-  },
-];
+export const reports = [];
 
-export const notifications = [
-  {
-    id: "notification-1",
-    userId: "user-member-obc-dinesh-h-a",
-    title: "New circular for OBC Cell",
-    message: "Scholarship Review Circular is now available.",
-    type: "circular",
-    entityId: "circular-1",
-    read: false,
-    createdAt: new Date().toISOString(),
-  },
-];
+export const notifications = [];
 
 export function createNotification({ userId, title, message, type, entityId }) {
   const notification = {

@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { createModelProxy } from "./memory-store.js";
 
 const deliverySchema = new mongoose.Schema(
   {
@@ -56,8 +57,6 @@ const circularSchema = new mongoose.Schema(
     description: { type: String, required: true },
     cellId: { type: String, required: true, index: true },
     createdBy: { type: String, required: true },
-    fileUrl: { type: String, default: null },
-    filePublicId: { type: String, default: null },
     fileName: { type: String, default: "" },
     fileMimeType: { type: String, default: "" },
     fileSize: { type: Number, default: 0 },
@@ -108,10 +107,17 @@ const notificationSchema = new mongoose.Schema(
   baseOptions,
 );
 
-export const Cell = mongoose.models.Cell || mongoose.model("Cell", cellSchema);
-export const User = mongoose.models.User || mongoose.model("User", userSchema);
-export const Circular = mongoose.models.Circular || mongoose.model("Circular", circularSchema);
-export const Meeting = mongoose.models.Meeting || mongoose.model("Meeting", meetingSchema);
-export const Report = mongoose.models.Report || mongoose.model("Report", reportSchema);
-export const Notification =
+const cellModel = mongoose.models.Cell || mongoose.model("Cell", cellSchema);
+const userModel = mongoose.models.User || mongoose.model("User", userSchema);
+const circularModel = mongoose.models.Circular || mongoose.model("Circular", circularSchema);
+const meetingModel = mongoose.models.Meeting || mongoose.model("Meeting", meetingSchema);
+const reportModel = mongoose.models.Report || mongoose.model("Report", reportSchema);
+const notificationModel =
   mongoose.models.Notification || mongoose.model("Notification", notificationSchema);
+
+export const Cell = createModelProxy("Cell", cellModel);
+export const User = createModelProxy("User", userModel);
+export const Circular = createModelProxy("Circular", circularModel);
+export const Meeting = createModelProxy("Meeting", meetingModel);
+export const Report = createModelProxy("Report", reportModel);
+export const Notification = createModelProxy("Notification", notificationModel);

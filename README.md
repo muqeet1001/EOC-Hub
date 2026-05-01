@@ -7,16 +7,15 @@ Admin-only circular distribution app for Equal Opportunity Cell communication.
 - Frontend: React + Vite
 - Backend: Node.js + Express
 - Database: MongoDB
-- File storage: local uploads by default, Cloudinary when configured
-- Email: SMTP through Nodemailer
+- Email: SMTP through Nodemailer with direct PDF attachments
 
 ## Current Flow
 
-- No login or user authentication screen
-- Admin opens the dashboard directly
+- No authentication required - app works directly
+- Admin opens the dashboard directly (no login)
 - Admin selects a cell
 - Admin uploads a circular PDF and writes the email message
-- The backend saves the circular and sends it to every email address for that cell
+- The backend sends the circular PDF as a direct email attachment to every member in the selected cell
 - Sent circulars show member-by-member delivery status
 
 ## Environment
@@ -24,8 +23,11 @@ Admin-only circular distribution app for Equal Opportunity Cell communication.
 Create `server/.env` from `server/.env.example` and set:
 
 - `MONGODB_URI`
-- `PUBLIC_APP_URL` (defaults to `http://localhost:4000`)
-- Optional Cloudinary values for hosted PDF storage
+- `ENABLE_MEMORY_FALLBACK`
+- `ENABLE_DEMO_SEED_DATA`
+- `PORT`
+- `PUBLIC_APP_URL`
+- `MAX_ATTACHMENT_SIZE_MB`
 - SMTP values for real email delivery:
   - `SMTP_HOST`
   - `SMTP_PORT`
@@ -33,8 +35,25 @@ Create `server/.env` from `server/.env.example` and set:
   - `SMTP_USER`
   - `SMTP_PASS`
   - `SMTP_FROM`
+- Optional local testing controls:
+  - `EMAIL_TEST_MODE`
+  - `EMAIL_TEST_RECIPIENT`
+
+Create `client/.env` from `client/.env.example` if you want to override the frontend dev port or proxy target:
+
+- `VITE_PORT`
+- `VITE_API_BASE`
+- `VITE_PROXY_TARGET`
 
 If SMTP is not configured, circulars are still saved and delivery rows are marked as `not_configured`.
+Uploaded PDFs are not stored on disk or in Cloudinary. They are attached directly to outgoing emails and only attachment metadata is retained in the circular history.
+
+Production recommendation:
+
+- `ENABLE_MEMORY_FALLBACK=false`
+- `ENABLE_DEMO_SEED_DATA=false`
+
+That makes the app use only real MongoDB users for each selected cell. Demo users are used only when you explicitly enable local demo mode.
 
 ## Run
 
@@ -46,8 +65,8 @@ npm run dev
 
 Frontend:
 
-- `http://localhost:5173`
+- `http://localhost:5173` by default, or `VITE_PORT` from `client/.env`
 
 Backend:
 
-- `http://localhost:4000`
+- `PUBLIC_APP_URL` from `server/.env`

@@ -264,11 +264,7 @@ export async function createCircular({
   description,
   cellId,
   createdBy,
-  fileUrl,
-  filePublicId,
-  fileName,
-  fileMimeType,
-  fileSize,
+  attachment,
 }) {
   const recipients = await User.find({ cellId }).lean();
   const cell = await Cell.findOne({ id: cellId }).lean();
@@ -279,11 +275,9 @@ export async function createCircular({
     description,
     cellId,
     createdBy,
-    fileUrl: fileUrl ?? null,
-    filePublicId: filePublicId ?? null,
-    fileName: fileName ?? "",
-    fileMimeType: fileMimeType ?? "",
-    fileSize: fileSize ?? 0,
+    fileName: attachment?.fileName ?? "",
+    fileMimeType: attachment?.fileMimeType ?? "",
+    fileSize: attachment?.fileSize ?? 0,
     createdAt: new Date(),
     readBy: [],
     deliveries: recipients.map((recipient) => ({
@@ -305,6 +299,7 @@ export async function createCircular({
           recipient,
           cellName,
           circular: circular.toObject(),
+          attachment,
         }),
       ),
     );
